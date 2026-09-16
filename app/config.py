@@ -23,7 +23,7 @@ class Settings(BaseSettings):
 
     # Ollama Configuration
     ollama_base_url: str = "http://localhost:11434"
-    ollama_model: str = "gemma4:e4b"
+    ollama_model: str = "qwen2.5:7b"
 
     # Florence-2 Model
     florence_model_name: str = "microsoft/Florence-2-base"

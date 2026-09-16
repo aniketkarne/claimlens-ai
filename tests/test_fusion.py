@@ -127,4 +127,33 @@ class TestFusionEngine:
         )
 
         # With only user text, no conflicts should occur
-        # (conflicts only happen when multiple sources disagree)
+        assert result["conflicts"] == []
+
+    def test_fuse_returns_valid_conflicts_for_real_disagreement(self):
+        """Regression: when sources disagree, fuse() must return a valid
+        conflicts list (not raise AttributeError on a plain dict).
+
+        Before the fix, _create_conflict returned a dict and the call site
+        called c.model_dump() on it, crashing the entire /api/claims/analyze
+        endpoint the moment any source disagreement was detected.
+        """
+        result = self.fusion.fuse(
+            ocr_output={
+                # OCR's heuristic picks "front" as damage_location.
+                "raw_text": "Front damage to vehicle",
+                "language_used": "nl",
+            },
+            florence_output={"structured_output": {"visible_damage_area": "rear"}},
+            # User text is also Dutch — its parse is independent of OCR/Florence,
+            # so it can agree or disagree with the others.
+            user_text="Schade aan de achterkant",
+        )
+
+        # The conflicts list must be a list of plain dicts with the expected shape.
+        assert isinstance(result["conflicts"], list)
+        assert len(result["conflicts"]) >= 1
+        for c in result["conflicts"]:
+            assert isinstance(c, dict)
+            assert set(c.keys()) == {"field", "sources", "message"}
+            assert isinstance(c["sources"], dict)
+            assert len(c["sources"]) >= 2

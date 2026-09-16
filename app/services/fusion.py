@@ -2,6 +2,8 @@
 
 from typing import Any, Dict, List, Optional, Tuple
 
+from app.models.schemas import SourceConflict
+
 
 class FusionEngine:
     """
@@ -307,16 +309,16 @@ class FusionEngine:
         field: str,
         sources_with_value: List[Tuple[str, str]],
         all_source_data: Dict[str, Dict]
-    ) -> dict:
+    ) -> SourceConflict:
         """Create a conflict record for the given field."""
-        sources_dict = {}
-        for source_name, value in sources_with_value:
-            sources_dict[source_name] = value
-
+        sources_dict = {
+            source_name: value
+            for source_name, value in sources_with_value
+        }
         message = f"Conflicting values for '{field}' detected between sources."
 
-        return {
-            "field": field,
-            "sources": sources_dict,
-            "message": message
-        }
+        return SourceConflict(
+            field=field,
+            sources=sources_dict,
+            message=message,
+        )

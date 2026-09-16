@@ -1,5 +1,9 @@
 # ClaimLens AI — Local Multimodal Insurance Claims Intake System
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![Tests](https://img.shields.io/badge/tests-28%20passed-brightgreen.svg)](./tests/)
+
 A POC demonstrating how small/local AI models can handle insurance company-level claims intake and triage — entirely on-premise.
 
 ## What is ClaimLens AI?
@@ -324,7 +328,7 @@ This is more honest and enterprise-appropriate than pretending the system knows 
 ### 1. Clone and Virtual Environment
 
 ```bash
-git clone https://github.com/aniketkarne-com/claimlens-ai.git
+git clone https://github.com/aniketkarne/claimlens-ai.git
 cd claimlens-ai
 python3 -m venv venv
 source venv/bin/activate
@@ -434,7 +438,8 @@ claimlens-ai/
 │       ├── tesseract_ocr.py     # Tesseract OCR extraction
 │       ├── qwen_vl_extractor.py # qwen3-vl:4b vision extraction
 │       ├── qwen25_reasoner.py   # qwen2.5:7b structured reasoning
-│       ├── phi4_reasoner.py      # (legacy) phi4 reasoning
+│       ├── phi4_reasoner.py      # (deprecated) phi4 reasoning — no longer wired into routes
+│       ├── florence_extractor.py # (deprecated) Florence-2 — empty passthrough placeholder
 │       ├── fusion.py             # Fusion layer — merge + conflict detection
 │       ├── rules_engine.py       # Deterministic business rules
 │       ├── decision_engine.py    # Final decision routing
@@ -479,4 +484,4 @@ ollama rm florence2
 
 ## License
 
-Private — All rights reserved.
+[MIT](./LICENSE) — aniket Karne, 2025.
