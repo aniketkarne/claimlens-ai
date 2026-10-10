@@ -228,3 +228,85 @@ class TestRulesEngine:
 
         # Should have multiple rules
         assert len(result["applied_rules"]) >= 2
+
+    # ----------------------------------------------------------------
+    # /api/claims/analyze-vision contract: raw_sources must be populated
+    # ----------------------------------------------------------------
+    #
+    # analyze_vision runs qwen3-vl:4b directly (no Tesseract, no
+    # Florence-2) and returns structured JSON. The route must still
+    # populate raw_sources so the rules engine's "all three sources
+    # empty" guard (DOCUMENT_EXTRACTION_FAILED) does not false-trip on
+    # the vision pipeline.
+
+    def test_vision_pipeline_with_raw_sources_does_not_trip_extraction_failed(self):
+        """A vision-pipeline payload with populated raw_sources must NOT trip DOCUMENT_EXTRACTION_FAILED.
+
+        This is the contract the analyze_vision route must satisfy:
+        it cannot omit raw_sources just because qwen3-vl:4b produces
+        structured JSON instead of raw text.
+        """
+        # Mirrors the shape analyze_vision() builds after the fix
+        fusion_result = {
+            "normalized_claim_input": {
+                "accident_date": "2026-04-12",
+                "insured_name_a": "J. Doe",
+                "vehicle_a": "VW Golf",
+                "plate_a": "AB-123-CD",
+            },
+            "missing_fields": [],
+            "conflicts": [],
+            "source_map": {"vision": "qwen3-vl:4b"},
+            "raw_sources": {
+                "ocr_text": '{"accident_date": "2026-04-12"}',  # JSON dump of structured_output
+                "florence_structured": {},
+                "user_text": "",  # optional
+            },
+        }
+        result = self.rules.apply_rules(fusion_result, None)
+        rule_ids = [r["rule_id"] for r in result["applied_rules"]]
+        assert "DOCUMENT_EXTRACTION_FAILED" not in rule_ids, (
+            "Vision pipeline with populated raw_sources must NOT trip "
+            "DOCUMENT_EXTRACTION_FAILED — that's the whole point of the fix."
+        )
+
+    def test_vision_pipeline_without_raw_sources_still_trips_extraction_failed(self):
+        """The pre-fix shape (no raw_sources) must still trip DOCUMENT_EXTRACTION_FAILED.
+
+        Sanity check the fix does not weaken the rule: if a caller
+        forwards a raw_structures call without raw_sources, the
+        extraction-failed guard must still fire.
+        """
+        # Pre-fix shape: missing raw_sources entirely
+        fusion_result = {
+            "normalized_claim_input": {"accident_date": "2026-04-12"},
+            "missing_fields": [],
+            "conflicts": [],
+            "source_map": {"vision": "qwen3-vl:4b"},
+            # raw_sources absent on purpose
+        }
+        result = self.rules.apply_rules(fusion_result, None)
+        rule_ids = [r["rule_id"] for r in result["applied_rules"]]
+        assert "DOCUMENT_EXTRACTION_FAILED" in rule_ids, (
+            "Without raw_sources, the extraction-failed guard must still fire."
+        )
+
+    def test_real_extraction_failure_still_trips(self):
+        """When all three sources are genuinely empty, the rule must still fire.
+
+        Sanity check the fix does not mask real failures.
+        """
+        fusion_result = {
+            "normalized_claim_input": {},
+            "missing_fields": [],
+            "conflicts": [],
+            "source_map": {},
+            "raw_sources": {
+                "ocr_text": "",
+                "florence_structured": {},
+                "user_text": "",
+            },
+        }
+        result = self.rules.apply_rules(fusion_result, None)
+        rule_ids = [r["rule_id"] for r in result["applied_rules"]]
+        assert "DOCUMENT_EXTRACTION_FAILED" in rule_ids

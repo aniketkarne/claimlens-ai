@@ -23,10 +23,11 @@ class Settings(BaseSettings):
 
     # Ollama Configuration
     ollama_base_url: str = "http://localhost:11434"
-    ollama_model: str = "gemma4:e4b"
-
-    # Florence-2 Model
-    florence_model_name: str = "microsoft/Florence-2-base"
+    # Default to qwen2.5:7b — the only text-reasoning model documented as
+    # active in README §"Model Evaluation History" and journey.md. The prior
+    # default (gemma4:e4b) was explicitly removed because it hallucinated
+    # fields on EU accident forms.
+    ollama_model: str = "qwen2.5:7b"
 
     # Tesseract Configuration
     tesseract_dutch_lang: str = "nld"

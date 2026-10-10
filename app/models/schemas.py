@@ -41,7 +41,11 @@ class OCRResult(BaseModel):
 
 
 class VisionStructuredOutput(BaseModel):
-    """Structured output from Florence-2."""
+    """Structured output from a vision model (reserved for future use).
+
+    Florence-2 was removed from the active pipeline; the schema is kept
+    so vision-pipeline response payloads stay forward-compatible.
+    """
     visible_damage_area: Optional[str] = None
     accident_diagram_summary: Optional[str] = None
     checkboxes_or_marked_fields: List[str] = Field(default_factory=list)
@@ -50,7 +54,9 @@ class VisionStructuredOutput(BaseModel):
 
 
 class VisionResult(BaseModel):
-    """Florence-2 visual extraction result."""
+    """Vision-model extraction result. Reserved; always ``None`` from the
+    OCR pipeline. See README §"Model Evaluation History" — the active
+    vision path is ``/claims/analyze-vision`` (qwen3-vl:4b)."""
     source: str = "florence-2"
     raw_output: str
     structured_output: VisionStructuredOutput

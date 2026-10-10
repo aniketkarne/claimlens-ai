@@ -46,7 +46,9 @@ class DecisionEngine:
 
         Args:
             rules_result: Result from the rules engine
-            phi4_result: Result from Phi-4 reasoning (optional)
+            phi4_result: Result from the active reasoning layer (named
+                ``phi4_result`` for backward compatibility — the active
+                reasoner is now qwen2.5:7b).
 
         Returns:
             Dictionary containing:

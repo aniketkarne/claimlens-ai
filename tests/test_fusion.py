@@ -74,7 +74,12 @@ class TestFusionEngine:
         assert len(source_map) > 0
 
     def test_fuse_preserves_raw_sources(self):
-        """Test that raw sources are preserved."""
+        """Test that raw OCR + user text are preserved, and Florence-2 is ignored.
+
+        Florence-2 was removed from the OCR pipeline (see README §"Model
+        Evaluation History" and journey.md). The ``florence_output`` kwarg is
+        still accepted for backward compatibility but must be ignored.
+        """
         ocr_text = "Raw OCR text from document"
         user_text = "User provided description"
 
@@ -87,7 +92,8 @@ class TestFusionEngine:
         raw_sources = result["raw_sources"]
         assert raw_sources["ocr_text"] == ocr_text
         assert raw_sources["user_text"] == user_text
-        assert raw_sources["florence_structured"]["visible_damage_area"] == "front"
+        # Florence-2 was removed — the data is not preserved
+        assert raw_sources["florence_structured"] == {}
 
     def test_fuse_damage_location_extraction(self):
         """Test extraction of damage location from user text."""

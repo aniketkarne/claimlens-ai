@@ -274,7 +274,7 @@ Open http://localhost:8000/docs for the interactive API explorer.
     "pipeline_version": "0.1.0",
     "steps_completed": [
       "file_upload", "image_loaded", "tesseract_ocr",
-      "florence_extraction", "fusion", "qwen_reasoning",
+      "fusion", "qwen_reasoning",
       "rules_engine", "decision_engine"
     ],
     "warnings": [],
@@ -432,9 +432,8 @@ claimlens-ai/
 │       ├── document_loader.py   # PDF/image loading + conversion
 │       ├── image_preprocessor.py # Image preprocessing
 │       ├── tesseract_ocr.py     # Tesseract OCR extraction
-│       ├── qwen_vl_extractor.py # qwen3-vl:4b vision extraction
-│       ├── qwen25_reasoner.py   # qwen2.5:7b structured reasoning
-│       ├── phi4_reasoner.py      # (legacy) phi4 reasoning
+│       ├── qwen_vl_extractor.py # qwen3-vl:4b vision extraction (vision pipeline)
+│       ├── qwen25_reasoner.py   # qwen2.5:7b structured reasoning (active reasoner)
 │       ├── fusion.py             # Fusion layer — merge + conflict detection
 │       ├── rules_engine.py       # Deterministic business rules
 │       ├── decision_engine.py    # Final decision routing

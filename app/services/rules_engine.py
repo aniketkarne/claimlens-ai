@@ -1,4 +1,4 @@
-"""Rules engine - deterministic business logic applied after Phi-4 reasoning."""
+"""Rules engine - deterministic business logic applied after qwen2.5:7b reasoning."""
 
 from typing import Any, Dict, List, Optional
 
@@ -7,7 +7,7 @@ class RulesEngine:
     """
     Deterministic rules engine for insurance claim processing.
 
-    Rules are applied AFTER Phi-4 reasoning and do NOT use any AI/LLM.
+    Rules are applied AFTER qwen2.5:7b reasoning and do NOT use any AI/LLM.
 
     The rules check for:
     1. Missing critical fields

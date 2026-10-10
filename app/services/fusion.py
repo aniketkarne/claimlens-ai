@@ -1,4 +1,4 @@
-"""Fusion layer - combines OCR, Florence-2, and user text into normalized structure."""
+"""Fusion layer - combines OCR and user text into normalized structure."""
 
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -7,10 +7,14 @@ class FusionEngine:
     """
     Fusion layer that combines outputs from:
     - Tesseract OCR
-    - Florence-2 visual extraction
     - User-provided text
 
     This is deterministic logic, NOT an AI model.
+
+    The ``florence_output`` parameter is preserved for backward compatibility
+    with callers that still pass a vision-source dict, but it is ignored
+    (Florence-2 was removed from the pipeline — see README §"Model Evaluation
+    History" and journey.md §"Removed").
     """
 
     # Critical fields that must be present for a valid claim
@@ -38,15 +42,19 @@ class FusionEngine:
     def fuse(
         self,
         ocr_output: Optional[dict],
-        florence_output: Optional[dict],
-        user_text: Optional[str]
+        florence_output: Optional[dict] = None,
+        user_text: Optional[str] = None
     ) -> dict:
         """
-        Fuse OCR, Florence-2, and user text into normalized claim input.
+        Fuse OCR and user text into normalized claim input.
+
+        The ``florence_output`` argument is accepted for backward
+        compatibility with earlier callers but is ignored — Florence-2 was
+        removed from the pipeline. Pass ``None`` (the default).
 
         Args:
             ocr_output: Tesseract OCR result
-            florence_output: Florence-2 visual extraction result
+            florence_output: Ignored. Retained as a kwarg for API stability.
             user_text: Optional user-provided text
 
         Returns:
@@ -57,6 +65,11 @@ class FusionEngine:
             - source_map: Mapping of fields to their sources
             - raw_sources: Preserved raw outputs from each source
         """
+        # Florence-2 removed from the active pipeline. Force the param to
+        # None so downstream logic (and the rules engine's
+        # _check_extraction_failed) sees a deterministic, well-defined input.
+        florence_output = None
+
         # Initialize result structures
         normalized = {
             "incident_date": None,
@@ -85,16 +98,11 @@ class FusionEngine:
             ocr_text = ocr_output["raw_text"]
             raw_sources["ocr_text"] = ocr_text
 
-        # Extract from Florence-2
-        florence_structured = {}
-        if florence_output and florence_output.get("structured_output"):
-            florence_structured = florence_output["structured_output"]
-            raw_sources["florence_structured"] = florence_structured
-
-        # Extract information from each source
+        # Extract information from each source. "florence" is now always
+        # empty — the rules engine's _check_extraction_failed handles the
+        # (ocr == "" AND user_text == "") case explicitly.
         sources_data = {
             "ocr": self._parse_ocr_text(ocr_text),
-            "florence": self._parse_florence_output(florence_structured),
             "user_text": self._parse_user_text(user_text or "")
         }
 
@@ -132,10 +140,6 @@ class FusionEngine:
                     )
                     conflicts.append(conflict)
                     source_map[field] = sources
-
-        # Add document notes from Florence-2
-        if florence_structured.get("visible_notes"):
-            normalized["document_notes"].extend(florence_structured["visible_notes"])
 
         return {
             "normalized_claim_input": normalized,
@@ -221,27 +225,6 @@ class FusionEngine:
                     break
             if "accident_type" in result:
                 break
-
-        return result
-
-    def _parse_florence_output(self, florence_structured: dict) -> Dict[str, Any]:
-        """
-        Parse Florence-2 structured output.
-        """
-        result = {}
-
-        if not florence_structured:
-            return result
-
-        # Extract visible damage area
-        visible_damage = florence_structured.get("visible_damage_area")
-        if visible_damage:
-            result["damage_location"] = visible_damage
-
-        # Extract accident diagram summary
-        diagram_summary = florence_structured.get("accident_diagram_summary")
-        if diagram_summary:
-            result["accident_diagram_summary"] = diagram_summary
 
         return result
 

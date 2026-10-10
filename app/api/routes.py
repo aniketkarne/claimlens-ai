@@ -1,5 +1,6 @@
 """API routes for ClaimLens AI."""
 
+import json
 import uuid
 from typing import Optional
 
@@ -16,9 +17,7 @@ from app.models.schemas import (
 from app.services.document_loader import DocumentLoader
 from app.services.image_preprocessor import ImagePreprocessor
 from app.services.tesseract_ocr import TesseractOCR
-from app.services.florence_extractor import FlorenceExtractor
 from app.services.fusion import FusionEngine
-from app.services.phi4_reasoner import Phi4Reasoner
 from app.services.qwen25_reasoner import Qwen25Reasoner
 from app.services.qwen_vl_extractor import QwenVLExtractor
 from app.services.rules_engine import RulesEngine
@@ -31,8 +30,6 @@ router = APIRouter()
 
 # Initialize services lazily
 _tesseract: Optional[TesseractOCR] = None
-_florence: Optional[FlorenceExtractor] = None
-_phi4: Optional[Phi4Reasoner] = None
 _qwen25: Optional[Qwen25Reasoner] = None
 _qwen_vl: Optional[QwenVLExtractor] = None
 
@@ -43,22 +40,6 @@ def get_tesseract() -> TesseractOCR:
     if _tesseract is None:
         _tesseract = TesseractOCR()
     return _tesseract
-
-
-def get_florence() -> FlorenceExtractor:
-    """Get Florence-2 extractor service instance."""
-    global _florence
-    if _florence is None:
-        _florence = FlorenceExtractor()
-    return _florence
-
-
-def get_phi4() -> Phi4Reasoner:
-    """Get Phi-4 reasoner service instance."""
-    global _phi4
-    if _phi4 is None:
-        _phi4 = Phi4Reasoner()
-    return _phi4
 
 
 def get_qwen25() -> Qwen25Reasoner:
@@ -83,7 +64,6 @@ async def health_check():
     Check the health status of the API and its dependencies.
     """
     ollama_available = False
-    florence_available = False
     tesseract_available = False
 
     # Check Ollama
@@ -94,13 +74,6 @@ async def health_check():
                 timeout=5.0
             )
             ollama_available = response.status_code == 200
-    except Exception:
-        pass
-
-    # Check Florence-2
-    try:
-        florence = get_florence()
-        florence_available = florence.is_available()
     except Exception:
         pass
 
@@ -115,7 +88,7 @@ async def health_check():
         status="ok",
         ollama_available=ollama_available,
         configured_model=settings.ollama_model,
-        florence_available=florence_available,
+        florence_available=False,  # Removed — see README §"Model Evaluation History"
         tesseract_available=tesseract_available,
     )
 
@@ -134,13 +107,12 @@ async def analyze_claim(
     2. Save uploaded file temporarily
     3. Convert PDF to images if needed
     4. Run Tesseract OCR
-    5. Run Florence-2 visual extraction
-    6. Run Fusion Layer
-    7. Run Phi-4 reasoning
-    8. Run Rules Engine
-    9. Run Decision Engine
-    10. Save audit log
-    11. Return final JSON
+    5. Run Fusion Layer
+    6. Run qwen2.5:7b reasoning
+    7. Run Rules Engine
+    8. Run Decision Engine
+    9. Save audit log
+    10. Return final JSON
     """
     claim_id = str(uuid.uuid4())
     warnings = []
@@ -177,7 +149,6 @@ async def analyze_claim(
     # Process images
     preprocessor = ImagePreprocessor()
     ocr_output = None
-    florence_output = None
     image_path = image_paths[0] if image_paths else None
 
     # OCR extraction
@@ -196,32 +167,13 @@ async def analyze_claim(
                 "warnings": [str(e)]
             }
 
-    # Florence-2 extraction
-    if image_path:
-        try:
-            florence = get_florence()
-            florence_output = florence.extract_claim_visuals(image_path)
-            steps_completed.append("florence_extraction")
-        except Exception as e:
-            warnings.append(f"Florence-2 extraction failed: {str(e)}")
-            florence_output = {
-                "source": "florence-2",
-                "raw_output": "",
-                "structured_output": {
-                    "visible_damage_area": None,
-                    "accident_diagram_summary": None,
-                    "checkboxes_or_marked_fields": [],
-                    "visible_notes": [],
-                    "detected_objects_or_regions": []
-                },
-                "warnings": [str(e)]
-            }
-
-    # Fusion layer
+    # Fusion layer — Florence-2 step removed (see README §"Model Evaluation
+    # History"). The OCR pipeline now goes straight to Tesseract + qwen2.5:7b,
+    # which journey.md §"Removed" identifies as the recommended stack.
     fusion_engine = FusionEngine()
     fusion_result = fusion_engine.fuse(
         ocr_output=ocr_output,
-        florence_output=florence_output,
+        florence_output=None,
         user_text=user_text
     )
     steps_completed.append("fusion")
@@ -263,7 +215,7 @@ async def analyze_claim(
         },
         extraction={
             "ocr": ocr_output,
-            "vision": florence_output,
+            "vision": None,  # Florence-2 removed from the OCR pipeline
         },
         fusion=fusion_result,
         ai_reasoning=qwen25_result,
@@ -296,9 +248,9 @@ async def analyze_text_only(request: AnalyzeTextOnlyRequest):
     - Demo purposes
     - Fallback when document processing fails
 
-    Skips OCR and Florence-2, but still runs:
+    Runs:
     - Fusion
-    - Phi-4 reasoning
+    - qwen2.5:7b reasoning
     - Rules engine
     - Decision engine
     """
@@ -314,24 +266,11 @@ async def analyze_text_only(request: AnalyzeTextOnlyRequest):
         "warnings": ["Text-only mode: OCR skipped"]
     }
 
-    florence_output = {
-        "source": "florence-2",
-        "raw_output": "",
-        "structured_output": {
-            "visible_damage_area": None,
-            "accident_diagram_summary": None,
-            "checkboxes_or_marked_fields": [],
-            "visible_notes": [],
-            "detected_objects_or_regions": []
-        },
-        "warnings": ["Text-only mode: Florence-2 extraction skipped"]
-    }
-
     # Fusion layer
     fusion_engine = FusionEngine()
     fusion_result = fusion_engine.fuse(
         ocr_output=ocr_output,
-        florence_output=florence_output,
+        florence_output=None,
         user_text=request.user_text
     )
     steps_completed.append("fusion")
@@ -372,7 +311,7 @@ async def analyze_text_only(request: AnalyzeTextOnlyRequest):
         },
         extraction={
             "ocr": ocr_output,
-            "vision": florence_output,
+            "vision": None,  # Florence-2 removed from the OCR pipeline
         },
         fusion=fusion_result,
         ai_reasoning=qwen25_result,
@@ -442,7 +381,7 @@ async def analyze_vision(
             steps_completed.append("qwen_vision")
         except Exception as e:
             warnings.append(f"qwen3-vl:4b extraction failed: {str(e)}")
-            vision_result = {"source": "qwen3-vl:4b", "structured_output": None, "raw_output": str(e), "warnings": [str(e)], "latency_ms": 0}
+            vision_result = {"source": "qwen3-vl:4b", "structured_output": None, "raw_output": str(e), "warnings": [str(e)], "latency_seconds": 0}
 
     structured = vision_result.get("structured_output", {}) if vision_result else {}
     fusion_result = {
@@ -480,7 +419,22 @@ async def analyze_vision(
         },
         "missing_fields": [],
         "conflicts": [],
-        "source_map": {"vision": "qwen3-vl:4b"}
+        "source_map": {"vision": "qwen3-vl:4b"},
+        # Populate raw_sources so the rules engine's DOCUMENT_EXTRACTION_FAILED
+        # check does not false-trip on the vision pipeline. The vision pipeline
+        # intentionally skips Tesseract OCR and Florence-2; qwen3-vl:4b
+        # produces structured JSON, not raw text, so ocr_text /
+        # florence_structured / user_text are all empty by design. Without
+        # this, the rule's "all three sources empty" guard fires on every
+        # /api/claims/analyze-vision call that didn't include user_text,
+        # routing valid claims to reject_not_supported. Matches the contract
+        # rules_engine._check_extraction_failed already expects — no
+        # rules-engine change.
+        "raw_sources": {
+            "ocr_text": json.dumps(structured, default=str) if structured else "",
+            "florence_structured": structured.get("diagram_analysis") or {} if structured else {},
+            "user_text": user_text or "",
+        },
     }
     steps_completed.append("fusion")
 
@@ -500,7 +454,7 @@ async def analyze_vision(
         input_summary={"file_name": file.filename, "file_type": file.content_type, "user_text_provided": user_text is not None and len(user_text) > 0, "language": language, "pipeline": "vision"},
         extraction={"ocr": {"source": "tesseract", "raw_text": "", "language_used": language, "warnings": ["Vision pipeline: OCR skipped"]}, "vision": vision_result or {}},
         fusion=fusion_result,
-        ai_reasoning={"model": "qwen3-vl:4b", "claim_interpretation": structured, "raw_output": (vision_result.get("raw_output", "")[:500] if vision_result else ""), "latency_ms": (vision_result.get("latency_ms", 0) if vision_result else 0)},
+        ai_reasoning={"model": "qwen3-vl:4b", "claim_interpretation": structured, "raw_output": (vision_result.get("raw_output", "")[:500] if vision_result else ""), "latency_seconds": (vision_result.get("latency_seconds", 0) if vision_result else 0)},
         rules=rules_result,
         decision=decision_result,
         audit={"pipeline_version": settings.pipeline_version, "steps_completed": steps_completed, "warnings": warnings, "total_latency_ms": total_ms}
