@@ -2,6 +2,12 @@
 
 from typing import Any, Dict, List, Optional
 
+from app.services.interpretation import (
+    CLAIM_TYPE_FIELD,
+    UNKNOWN_CLAIM_TYPE,
+    normalize_claim_type,
+)
+
 
 class DecisionEngine:
     """
@@ -101,8 +107,8 @@ class DecisionEngine:
         if not interpretation:
             return True
 
-        claim_type = interpretation.get("claim_type", "unknown")
-        return claim_type == "unknown" or claim_type is None
+        claim_type = normalize_claim_type(interpretation.get(CLAIM_TYPE_FIELD))
+        return claim_type == UNKNOWN_CLAIM_TYPE
 
     def _make_high_risk_decision(
         self,

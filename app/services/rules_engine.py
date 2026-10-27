@@ -1,6 +1,12 @@
 """Rules engine - deterministic business logic applied after Phi-4 reasoning."""
 
+import re
 from typing import Any, Dict, List, Optional
+
+from app.services.interpretation import (
+    FRAUD_INDICATORS_FIELD,
+    normalize_fraud_indicators,
+)
 
 
 class RulesEngine:
@@ -149,8 +155,10 @@ class RulesEngine:
 
     def _check_fraud_indicators(self, phi4_result: dict) -> Optional[dict]:
         """Check for fraud indicators from Phi-4 reasoning."""
-        interpretation = phi4_result.get("claim_interpretation", {})
-        fraud_indicators = interpretation.get("fraud_indicators", [])
+        interpretation = phi4_result.get("claim_interpretation") or {}
+        fraud_indicators = normalize_fraud_indicators(
+            interpretation.get(FRAUD_INDICATORS_FIELD)
+        )
 
         if fraud_indicators and len(fraud_indicators) > 0:
             return {
@@ -192,7 +200,7 @@ class RulesEngine:
 
         # Check Dutch keywords
         for keyword in self.REPEATED_CLAIM_KEYWORDS_DUTCH:
-            if keyword.lower() in combined_text:
+            if self._contains_phrase(combined_text, keyword):
                 return {
                     "rule_id": "REPEATED_CLAIM_SIGNAL",
                     "severity": "high",
@@ -201,7 +209,7 @@ class RulesEngine:
 
         # Check English keywords
         for keyword in self.REPEATED_CLAIM_KEYWORDS_ENGLISH:
-            if keyword.lower() in combined_text:
+            if self._contains_phrase(combined_text, keyword):
                 return {
                     "rule_id": "REPEATED_CLAIM_SIGNAL",
                     "severity": "high",
@@ -209,6 +217,29 @@ class RulesEngine:
                 }
 
         return None
+
+    @staticmethod
+    def _contains_phrase(text: str, phrase: str) -> bool:
+        """
+        Check whether the text contains the phrase as whole words.
+
+        A plain substring check matches far too much: "again" is a substring
+        of "against", so every English claim mentioning a collision
+        "against" something tripped the repeated-claim rule and forced a
+        manual review.
+
+        Args:
+            text: Lower-cased text to search.
+            phrase: Phrase to look for.
+
+        Returns:
+            True when the phrase occurs as a whole word (or word sequence).
+        """
+        if not text or not phrase:
+            return False
+
+        pattern = r"(?<!\w)" + re.escape(phrase.lower()) + r"(?!\w)"
+        return re.search(pattern, text) is not None
 
     def _check_extraction_failed(self, fusion_result: dict) -> Optional[dict]:
         """Check if document extraction failed completely."""

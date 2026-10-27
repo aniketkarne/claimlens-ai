@@ -238,6 +238,8 @@ Open http://localhost:8000/docs for the interactive API explorer.
   "ai_reasoning": {
     "model": "qwen2.5:7b",
     "claim_interpretation": {
+      "claim_type": "motor_accident",
+      "fraud_indicators": [],
       "accident_date": "14-04-2025",
       "accident_time": "08:35",
       "location": "Kruisdrift / Parkkant junction, Utrecht",
@@ -427,6 +429,8 @@ claimlens-ai/
 │   ├── models/
 │   │   ├── __init__.py
 │   │   └── schemas.py           # Pydantic request/response models
+│   ├── prompts/
+│   │   └── qwen25_claim_reasoning_prompt.py  # qwen2.5:7b system prompt
 │   └── services/
 │       ├── __init__.py
 │       ├── document_loader.py   # PDF/image loading + conversion
@@ -435,6 +439,7 @@ claimlens-ai/
 │       ├── qwen_vl_extractor.py # qwen3-vl:4b vision extraction
 │       ├── qwen25_reasoner.py   # qwen2.5:7b structured reasoning
 │       ├── phi4_reasoner.py      # (legacy) phi4 reasoning
+│       ├── interpretation.py     # Shared reasoner -> rules/decision contract
 │       ├── fusion.py             # Fusion layer — merge + conflict detection
 │       ├── rules_engine.py       # Deterministic business rules
 │       ├── decision_engine.py    # Final decision routing
@@ -448,7 +453,10 @@ claimlens-ai/
 ├── tests/
 │   ├── test_fusion.py
 │   ├── test_rules_engine.py
-│   └── test_decision_engine.py
+│   ├── test_decision_engine.py
+│   ├── test_interpretation_contract.py
+│   ├── test_tesseract_language.py
+│   └── test_vision_route.py
 ├── logs/
 │   └── claims/                  # Per-claim JSON audit logs
 └── uploads/                     # Temporary uploaded files

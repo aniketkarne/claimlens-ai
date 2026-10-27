@@ -444,7 +444,7 @@ async def analyze_vision(
             warnings.append(f"qwen3-vl:4b extraction failed: {str(e)}")
             vision_result = {"source": "qwen3-vl:4b", "structured_output": None, "raw_output": str(e), "warnings": [str(e)], "latency_ms": 0}
 
-    structured = vision_result.get("structured_output", {}) if vision_result else {}
+    structured = (vision_result.get("structured_output") or {}) if vision_result else {}
     fusion_result = {
         "normalized_claim_input": {
             "accident_date": structured.get("accident_details", {}).get("date"),

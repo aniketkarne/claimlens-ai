@@ -1,12 +1,15 @@
 """Tesseract OCR service."""
 
 import shutil
-import subprocess
 import time
-from typing import Optional
+from typing import Optional, Set
 
-import pytesseract
-from pytesseract import Output
+try:
+    import pytesseract
+    from pytesseract import Output
+except ImportError:  # pragma: no cover - exercised on installs without Tesseract
+    pytesseract = None
+    Output = None
 
 from app.config import get_settings
 
@@ -17,11 +20,16 @@ class TesseractOCR:
     def __init__(self):
         self.settings = get_settings()
         self._available = None
+        self._installed_languages: Optional[Set[str]] = None
 
     def is_available(self) -> bool:
         """Check if Tesseract is available and working."""
         if self._available is not None:
             return self._available
+
+        if pytesseract is None:
+            self._available = False
+            return False
 
         try:
             result = shutil.which("tesseract")
@@ -35,6 +43,31 @@ class TesseractOCR:
         except Exception:
             self._available = False
             return False
+
+    def get_installed_languages(self) -> Set[str]:
+        """
+        Return the set of language packs Tesseract has installed.
+
+        The result is cached — the installed packs do not change while the
+        process runs.
+
+        Returns:
+            Set of installed language codes, empty when Tesseract cannot
+            report them.
+        """
+        if self._installed_languages is not None:
+            return self._installed_languages
+
+        installed: Set[str] = set()
+
+        if pytesseract is not None:
+            try:
+                installed = set(pytesseract.get_languages(config=""))
+            except Exception:
+                installed = set()
+
+        self._installed_languages = installed
+        return installed
 
     def _get_lang_code(self, language: str) -> str:
         """Get the Tesseract language code for the given language."""
@@ -69,9 +102,8 @@ class TesseractOCR:
         try:
             lang_code = self._get_lang_code(language)
 
-            try:
-                pytesseract.get_tesseract_lang_codes(lang_code)
-            except Exception:
+            installed = self.get_installed_languages()
+            if installed and lang_code not in installed:
                 lang_code = self.settings.tesseract_english_lang
                 warnings.append(
                     f"Language '{language}' not available, falling back to English"
