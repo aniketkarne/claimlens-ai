@@ -1,11 +1,13 @@
 """Document loader - handles PDF and image uploads."""
 
 import os
+import time
+from datetime import timedelta
 from pathlib import Path
 from typing import List, Optional
 
 import pdf2image
-from fastapi import UploadFile
+from fastapi import HTTPException, UploadFile
 
 from app.config import get_settings
 
@@ -16,6 +18,8 @@ class DocumentLoader:
     def __init__(self):
         self.settings = get_settings()
         self.upload_dir = self.settings.upload_path
+        self.max_upload_mb = self.settings.max_upload_mb
+        self.retention = timedelta(hours=self.settings.upload_retention_hours)
 
     async def save_upload(self, file: UploadFile, claim_id: str) -> Path:
         """
@@ -27,7 +31,17 @@ class DocumentLoader:
 
         Returns:
             Path to the saved file
+
+        Raises:
+            HTTPException: 413 when the upload exceeds the configured limit
         """
+        # Opportunistic retention sweep — keeps the upload directory bounded
+        # even when earlier runs crashed before cleanup could happen.
+        try:
+            self.sweep_stale()
+        except Exception:
+            pass  # best effort
+
         # Determine file extension
         content_type = file.content_type
         if content_type == "application/pdf":
@@ -46,12 +60,63 @@ class DocumentLoader:
         # Ensure directory exists
         self.upload_dir.mkdir(parents=True, exist_ok=True)
 
-        # Write file
-        content = await file.read()
-        with open(file_path, "wb") as f:
-            f.write(content)
+        # Write file in chunks — never hold the whole upload in memory, and
+        # refuse oversized bodies instead of letting them exhaust RAM.
+        max_bytes = self.max_upload_mb * 1024 * 1024
+        received = 0
+        try:
+            with open(file_path, "wb") as f:
+                while True:
+                    chunk = await file.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    received += len(chunk)
+                    if received > max_bytes:
+                        raise HTTPException(
+                            status_code=413,
+                            detail=f"Upload too large: limit is {self.max_upload_mb} MB",
+                        )
+                    f.write(chunk)
+        except Exception:
+            # Never leave a partial claim document behind
+            try:
+                file_path.unlink()
+            except OSError:
+                pass
+            raise
 
         return file_path
+
+    def sweep_stale(self, max_age: Optional[timedelta] = None) -> List[str]:
+        """
+        Delete claim artifacts older than the retention window.
+
+        Uploaded claim forms carry full PII (names, addresses, plates,
+        policy numbers) and the derived artifacts (PDF page renders,
+        preprocessed images) do too. Nothing else removes them, so anything
+        left behind by a crashed or interrupted run is swept here.
+
+        Args:
+            max_age: Retention window; defaults to the configured
+                upload_retention_hours.
+
+        Returns:
+            Paths that were removed.
+        """
+        if max_age is None:
+            max_age = self.retention
+        cutoff = time.time() - max_age.total_seconds()
+        removed: List[str] = []
+        if not self.upload_dir.exists():
+            return removed
+        for path in self.upload_dir.iterdir():
+            try:
+                if path.is_file() and path.stat().st_mtime < cutoff:
+                    path.unlink()
+                    removed.append(str(path))
+            except OSError:
+                continue  # best effort — file may vanish mid-sweep
+        return removed
 
     def convert_pdf_to_images(
         self,

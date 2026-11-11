@@ -159,6 +159,8 @@ async def analyze_claim(
     try:
         file_path = await doc_loader.save_upload(file, claim_id)
         steps_completed.append("file_upload")
+    except HTTPException:
+        raise  # 413 from the upload limit must not become a 500
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to save uploaded file: {str(e)}")
 
@@ -419,6 +421,8 @@ async def analyze_vision(
     try:
         file_path = await doc_loader.save_upload(file, claim_id)
         steps_completed.append("file_upload")
+    except HTTPException:
+        raise  # 413 from the upload limit must not become a 500
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to save file: {str(e)}")
 

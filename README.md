@@ -383,6 +383,22 @@ API available at:
 
 ---
 
+## Data Retention & Upload Limits
+
+Claim documents are PII (names, addresses, plates, policy numbers). Two defaults bound their exposure:
+
+- **Upload size** — request bodies over `MAX_UPLOAD_MB` (default 25) are rejected with `413` before anything is written to disk. Uploads are streamed to disk in chunks, never held in memory whole.
+- **Retention** — raw uploads and derived artifacts (PDF page renders, preprocessed images) in `uploads/` are deleted after `UPLOAD_RETENTION_HOURS` (default 24). The sweep runs on every upload and on startup/shutdown, so files left behind by a crashed run are still removed.
+
+The JSON audit records in `logs/claims/` are the claim record store and are kept until you delete them. Fields whose names look like secrets (`*_token`, `*_secret`, `api_key`, ...) are redacted before a record is written.
+
+| Env var | Default | Meaning |
+|---|---|---|
+| `MAX_UPLOAD_MB` | 25 | Maximum request body size per upload |
+| `UPLOAD_RETENTION_HOURS` | 24 | How long raw claim documents stay on disk |
+
+---
+
 ## Known Limitations
 
 1. **Handwritten text** — Tesseract OCR accuracy drops significantly. Use high-quality scans/photos.

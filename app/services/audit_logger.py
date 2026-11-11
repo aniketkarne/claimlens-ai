@@ -1,7 +1,8 @@
 """Audit logger - persists claim records as JSON files."""
 
 import json
-from datetime import datetime
+import re
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict
 
@@ -32,7 +33,7 @@ class AuditLogger:
         # Add metadata
         audit_record = {
             "claim_id": claim_id,
-            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             "pipeline_version": self.settings.pipeline_version,
             "record": claim_data
         }
@@ -53,10 +54,10 @@ class AuditLogger:
         """
         Remove sensitive information from audit record.
 
-        Currently removes:
-        - Environment variables
-        - API keys
-        - File paths with user info
+        Any field whose name contains a secret-shaped word is redacted,
+        in any nesting, in dicts and in lists. Exact-name matching is not
+        enough: fields like ``access_token``, ``client_secret`` or
+        ``X-Api-Key`` carry secrets too and used to pass through untouched.
 
         Args:
             record: The audit record to sanitize
@@ -69,14 +70,20 @@ class AuditLogger:
 
         # Remove any field that looks like a secret
         secrets_patterns = [
-            "password", "secret", "api_key", "apikey", "token",
+            "password", "secret", "apikey", "token",
             "authorization", "credential"
         ]
+
+        def is_secret_key(key: str) -> bool:
+            # Compare on a normalized form so api_key / api-key / apiKey
+            # all match the same pattern.
+            normalized = re.sub(r"[^a-z0-9]", "", str(key).lower())
+            return any(pattern in normalized for pattern in secrets_patterns)
 
         def remove_secrets(obj):
             if isinstance(obj, dict):
                 return {
-                    k: remove_secrets(v) if k.lower() not in secrets_patterns else "[REDACTED]"
+                    k: "[REDACTED]" if is_secret_key(k) else remove_secrets(v)
                     for k, v in obj.items()
                 }
             elif isinstance(obj, list):
