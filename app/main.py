@@ -9,6 +9,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import get_settings
 from app.api.routes import router as api_router
+from app.services.document_loader import DocumentLoader
 
 
 settings = get_settings()
@@ -17,14 +18,15 @@ settings = get_settings()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan handler - startup and shutdown."""
-    # Startup: Ensure directories exist
+    # Startup: Ensure directories exist and sweep expired claim artifacts
     settings.upload_path.mkdir(parents=True, exist_ok=True)
     settings.claims_log_path.mkdir(parents=True, exist_ok=True)
+    DocumentLoader().sweep_stale()
 
     yield
 
-    # Shutdown: Clean up if needed
-    pass
+    # Shutdown: sweep expired claim artifacts (uploads are PII)
+    DocumentLoader().sweep_stale()
 
 
 app = FastAPI(

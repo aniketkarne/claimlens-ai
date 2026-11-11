@@ -39,6 +39,13 @@ class Settings(BaseSettings):
     # Language Settings
     default_language: str = "nl"
 
+    # Upload Limits / Retention
+    # Claim documents are PII: bound how big an upload can be and how long
+    # the raw file + derived artifacts stay on disk (swept on every upload
+    # and on startup/shutdown).
+    max_upload_mb: int = 25
+    upload_retention_hours: int = 24
+
     # API Settings
     api_host: str = "0.0.0.0"
     api_port: int = 8000
