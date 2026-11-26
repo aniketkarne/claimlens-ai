@@ -608,6 +608,10 @@
   });
 
   function handleFile(f) {
+    if (!/\.(pdf|png|jpe?g)$/i.test(f.name)) {
+      showError('Unsupported file type. Use PDF, PNG, or JPG.');
+      return;
+    }
     if (f.size > 10 * 1024 * 1024) {
       showError('File too large. Max 10MB.');
       return;
@@ -624,6 +628,18 @@
     el.textContent = msg;
     el.classList.add('visible');
     setTimeout(() => el.classList.remove('visible'), 6000);
+  }
+
+  // Server data (OCR/model output from uploaded documents) must never be
+  // interpolated into innerHTML unescaped — a crafted form could carry
+  // markup that executes in this page.
+  function escapeHtml(value) {
+    return String(value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
   }
 
   function toggleJson() {
@@ -686,23 +702,26 @@
     const total = timing.total || 0;
 
     // Metrics
-    const ocrTime = (data.extraction?.ocr?.latency_ms || 0);
-    const aiTime = (data.ai_reasoning?.latency_ms || 0);
+    const ocrTime = (data.extraction?.ocr?.latency_ms ?? 0);
+    // The vision extractor reports latency_seconds (with latency_ms alongside);
+    // older/other stages report latency_ms. Accept both.
+    const aiTime = (data.ai_reasoning?.latency_ms ??
+      Math.round((data.ai_reasoning?.latency_seconds ?? 0) * 1000));
     document.getElementById('metricsBar').innerHTML = `
       <div class="metric">
         <div class="metric-value">${total}ms</div>
         <div class="metric-label">Total Time</div>
       </div>
       <div class="metric">
-        <div class="metric-value">${ocrTime}ms</div>
+        <div class="metric-value">${escapeHtml(ocrTime)}ms</div>
         <div class="metric-label">OCR Extract</div>
       </div>
       <div class="metric">
-        <div class="metric-value">${aiTime}ms</div>
+        <div class="metric-value">${escapeHtml(aiTime)}ms</div>
         <div class="metric-label">AI Reasoning</div>
       </div>
       <div class="metric accent">
-        <div class="metric-value">${data.decision?.risk_level?.toUpperCase() || '?'}</div>
+        <div class="metric-value">${escapeHtml((data.decision?.risk_level || '?').toUpperCase())}</div>
         <div class="metric-label">Risk Level</div>
       </div>
     `;
@@ -720,7 +739,7 @@
       const color = stepColors[s] || '#6b7280';
       return `<div class="pipeline-step">
         <div class="step-icon done" style="background:${color}">✓</div>
-        <span class="step-name">${label}</span>
+        <span class="step-name">${escapeHtml(label)}</span>
         <span class="step-status ok">done</span>
       </div>`;
     }).join('');
@@ -738,10 +757,10 @@
     document.getElementById('decisionBox').innerHTML = `
       <div class="decision-icon">${decisionIcon}</div>
       <div class="decision-text">
-        <div class="decision-action">${action.replace(/_/g, ' ').toUpperCase()}</div>
-        <div class="decision-reasons">${reasons || 'No reasons provided.'}</div>
+        <div class="decision-action">${escapeHtml(action.replace(/_/g, ' ').toUpperCase())}</div>
+        <div class="decision-reasons">${escapeHtml(reasons) || 'No reasons provided.'}</div>
       </div>
-      <div class="decision-risk ${riskClass}">${risk.toUpperCase()} RISK</div>
+      <div class="decision-risk ${riskClass}">${escapeHtml(risk.toUpperCase())} RISK</div>
     `;
 
     // Extracted data
@@ -771,7 +790,7 @@
     document.getElementById('extractedData').innerHTML = fields.map(f => `
       <div class="data-item ${f.full ? 'full' : ''}">
         <div class="data-label">${f.label}</div>
-        <div class="data-value ${!f.value ? 'empty' : ''}">${f.value || 'Not detected'}</div>
+        <div class="data-value ${!f.value ? 'empty' : ''}">${escapeHtml(f.value) || 'Not detected'}</div>
       </div>
     `).join('');
 
