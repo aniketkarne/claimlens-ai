@@ -105,10 +105,13 @@ class QwenVLExtractor:
         Returns:
             Dictionary containing:
             - source: "qwen3-vl:4b"
-            - structured_output: The extracted JSON
+            - structured_output: The extracted JSON (dict, or None if the
+              model output could not be parsed)
             - raw_output: The raw model response (from thinking field)
             - warnings: Any issues encountered
             - latency_seconds: How long the extraction took
+            - latency_ms: Same duration in milliseconds (the unit the rest
+              of the app and the web UI use)
         """
         import time
         start = time.time()
@@ -139,44 +142,60 @@ class QwenVLExtractor:
             }
 
         # Call Ollama
-        raw_output = ""
         try:
-            raw_output = self._call_ollama_vision(img_b64)
+            reply = self._call_ollama_vision(img_b64)
         except Exception as e:
             warnings.append(f"Ollama call failed: {e}")
+            latency_ms = round((time.time() - start) * 1000)
             return {
                 "source": self.model,
                 "structured_output": None,
                 "raw_output": str(e),
                 "warnings": warnings,
-                "latency_seconds": time.time() - start
+                "latency_seconds": latency_ms / 1000,
+                "latency_ms": latency_ms
             }
 
-        # Parse JSON from the response
-        structured_output = self._parse_json(raw_output)
+        thinking = reply.get("thinking", "") or ""
+        resp = reply.get("response", "") or ""
+        raw_output = thinking if thinking else resp
+
+        # Parse JSON from the response. qwen3-vl puts its visible output in
+        # the 'thinking' field, so try that first — but if the thinking field
+        # holds only reasoning and the JSON landed in 'response', fall back.
+        structured_output = None
+        for candidate in (thinking, resp):
+            if not candidate:
+                continue
+            structured_output = self._parse_json(candidate)
+            if structured_output is not None:
+                break
         if structured_output is None:
             warnings.append("Failed to parse JSON from model output")
 
+        latency_ms = round((time.time() - start) * 1000)
         return {
             "source": self.model,
             "structured_output": structured_output,
             "raw_output": raw_output[:5000],  # truncate raw output
             "warnings": warnings,
-            "latency_seconds": round(time.time() - start, 1)
+            "latency_seconds": latency_ms / 1000,
+            "latency_ms": latency_ms
         }
 
-    def _call_ollama_vision(self, img_b64: str) -> str:
+    def _call_ollama_vision(self, img_b64: str) -> dict:
         """
         Call Ollama generate endpoint with image input.
 
-        qwen3-vl:4b puts its visible output in the 'thinking' field, not 'response'.
-        We need to read from the 'thinking' field.
+        qwen3-vl:4b puts its visible output in the 'thinking' field, not
+        'response', but both are returned so the caller can fall back when
+        only one of them carries the JSON.
 
         Args:
             img_b64: Base64-encoded image (without data URI prefix)
 
         Returns:
-            The model's output text (from thinking field)
+            {"thinking": str, "response": str} with the raw model fields
         """
         url = f"{self.base_url}/api/generate"
 
@@ -200,19 +219,24 @@ class QwenVLExtractor:
 
             result = response.json()
 
-            # Output is in 'thinking' field for this model
-            thinking = result.get("thinking", "")
-            resp = result.get("response", "")
-
-            # Prefer thinking field, fall back to response
-            return thinking if thinking else resp
+            # Output is in 'thinking' field for this model; keep both so the
+            # caller can fall back to 'response' when thinking carries no JSON.
+            return {
+                "thinking": result.get("thinking", "") or "",
+                "response": result.get("response", "") or "",
+            }
 
     def _parse_json(self, text: str) -> Optional[dict]:
         """
-        Parse JSON from the model output text.
+        Parse a JSON object from the model output text.
 
         Tries multiple strategies since the model may wrap JSON in markdown
-        code blocks or return it as raw text.
+        code blocks or return it as raw text. Only a JSON *object* counts as
+        an extraction — a bare list or scalar would crash the caller's
+        structured.get(...) chain, so it is rejected here.
+
+        When the text contains several objects (e.g. a schema echo followed
+        by the actual answer), the largest parseable one is returned.
         """
         if not text:
             return None
@@ -221,23 +245,69 @@ class QwenVLExtractor:
         match = re.search(r"```(?:json)?\s*([\s\S]*?)```", text)
         if match:
             try:
-                return json.loads(match.group(1).strip())
+                parsed = json.loads(match.group(1).strip())
+                if isinstance(parsed, dict):
+                    return parsed
             except json.JSONDecodeError:
                 pass
 
-        # Strategy 2: Look for JSON braces
-        start = text.find("{")
-        end = text.rfind("}") + 1
-        if start >= 0 and end > start:
+        # Strategy 2: Scan for balanced {...} regions. A first-{..last-}
+        # span breaks as soon as trailing prose contains a '}' or the model
+        # emits more than one object, so walk the text and parse each
+        # balanced object on its own.
+        best = None
+        for candidate in self._iter_balanced_objects(text):
             try:
-                return json.loads(text[start:end])
+                parsed = json.loads(candidate)
             except json.JSONDecodeError:
-                pass
+                continue
+            if isinstance(parsed, dict) and (best is None or len(candidate) > len(best[0])):
+                best = (candidate, parsed)
+        if best is not None:
+            return best[1]
 
         # Strategy 3: Try the whole text as JSON
         try:
-            return json.loads(text.strip())
+            parsed = json.loads(text.strip())
+            if isinstance(parsed, dict):
+                return parsed
         except json.JSONDecodeError:
             pass
 
         return None
+
+    def _iter_balanced_objects(self, text: str):
+        """
+        Yield each balanced top-level {...} substring of `text`.
+
+        Brace matching is string-aware: braces inside JSON string values
+        (with backslash escapes) are skipped so a value like "curly } brace"
+        does not end the object early.
+        """
+        depth = 0
+        start = None
+        in_string = False
+        escape = False
+        for i, ch in enumerate(text):
+            if depth == 0:
+                if ch == "{":
+                    start = i
+                    depth = 1
+                continue
+            if in_string:
+                if escape:
+                    escape = False
+                elif ch == "\\":
+                    escape = True
+                elif ch == '"':
+                    in_string = False
+                continue
+            if ch == '"':
+                in_string = True
+            elif ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    yield text[start:i + 1]
+                    start = None
